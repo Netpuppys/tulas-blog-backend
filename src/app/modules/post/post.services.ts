@@ -6,7 +6,12 @@ import prisma from '../../../shared/prisma';
 import { postSearchableFields } from './post.constants';
 import { IPostFilterRequest } from './post.interface';
 
+const normalizeSlug = (slug: string): string => slug.trim().replace(/\/+$/, '');
+
 const createPost = async (data: Post): Promise<Post> => {
+  if (data.slug) {
+    data.slug = normalizeSlug(data.slug);
+  }
   const result = await prisma.post.create({
     data,
   });
@@ -67,9 +72,12 @@ const getAllPost = async (
 };
 
 const getSinglePost = async (slug: string): Promise<Post | null> => {
-  const result = await prisma.post.findUnique({
+  const cleanSlug = normalizeSlug(slug);
+  // Match either a clean slug or one that was saved with a trailing slash
+  // (legacy bad data), so already-broken posts resolve without a DB fix.
+  const result = await prisma.post.findFirst({
     where: {
-      slug,
+      OR: [{ slug: cleanSlug }, { slug: `${cleanSlug}/` }],
     },
     include: {
       category: true,
@@ -82,6 +90,9 @@ const updatePost = async (
   id: string,
   payload: Partial<Post>
 ): Promise<Post> => {
+  if (payload.slug) {
+    payload.slug = normalizeSlug(payload.slug);
+  }
   const result = await prisma.post.update({
     where: {
       id,
