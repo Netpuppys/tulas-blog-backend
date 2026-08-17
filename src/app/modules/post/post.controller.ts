@@ -31,7 +31,8 @@ const getAllPost = catchAsync(async (req: Request, res: Response) => {
 
 const getSinglePost = catchAsync(async (req: Request, res: Response) => {
   const { slug } = req.params;
-  const result = await PostService.getSinglePost(slug);
+  const { status } = req.query;
+  const result = await PostService.getSinglePost(slug, status as string);
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,

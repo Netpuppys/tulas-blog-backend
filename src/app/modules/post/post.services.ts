@@ -12,6 +12,11 @@ const createPost = async (data: Post): Promise<Post> => {
   if (data.slug) {
     data.slug = normalizeSlug(data.slug);
   }
+  // Default to draft when the caller doesn't specify — safer than
+  // accidentally publishing something meant to stay private.
+  if (!data.status) {
+    data.status = 'draft';
+  }
   const result = await prisma.post.create({
     data,
   });
@@ -23,7 +28,7 @@ const getAllPost = async (
   options: IPaginationOptions
 ): Promise<IGenericResponse<Post[]>> => {
   const { page, limit, skip } = paginationHelpers.calculatePagination(options);
-  const { searchTerm } = filters;
+  const { searchTerm, status } = filters;
 
   const andConditons = [];
 
@@ -36,6 +41,17 @@ const getAllPost = async (
         },
       })),
     });
+  }
+
+  // status=all -> no filter (dashboard wants everything).
+  // status=<value> -> exact match on that status.
+  // status omitted -> default to "not draft" so published posts AND
+  // legacy posts saved before this field existed both show up, which is
+  // the safe default for anything that isn't explicitly the dashboard.
+  if (status && status !== 'all') {
+    andConditons.push({ status });
+  } else if (!status) {
+    andConditons.push({ status: { not: 'draft' } });
   }
 
   const whereConditons: Prisma.PostWhereInput =
@@ -71,14 +87,21 @@ const getAllPost = async (
   };
 };
 
-const getSinglePost = async (slug: string): Promise<Post | null> => {
+const getSinglePost = async (
+  slug: string,
+  status?: string
+): Promise<Post | null> => {
   const cleanSlug = normalizeSlug(slug);
-  // Match either a clean slug or one that was saved with a trailing slash
-  // (legacy bad data), so already-broken posts resolve without a DB fix.
+  const slugMatch = { OR: [{ slug: cleanSlug }, { slug: `${cleanSlug}/` }] };
+  // status=all (dashboard) can see drafts; anyone else only gets posts
+  // that aren't drafts (published, or legacy posts with no status set).
+  const includeAll = status === 'all';
+  const whereConditons: Prisma.PostWhereInput = includeAll
+    ? slugMatch
+    : { AND: [slugMatch, { status: { not: 'draft' } }] };
+
   const result = await prisma.post.findFirst({
-    where: {
-      OR: [{ slug: cleanSlug }, { slug: `${cleanSlug}/` }],
-    },
+    where: whereConditons,
     include: {
       category: true,
     },

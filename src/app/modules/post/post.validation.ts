@@ -37,6 +37,7 @@ const createZodPost = z.object({
     }),
     tags: z.array(z.string()).optional(),
     meta_keywords: z.array(z.string()).optional(),
+    status: z.enum(['draft', 'published']).optional(),
   }),
 });
 
@@ -88,6 +89,7 @@ const updateZodPost = z.object({
       })
       .optional(),
     tags: z.array(z.string()).optional(),
+    status: z.enum(['draft', 'published']).optional(),
   }),
 });
 

@@ -1,2 +1,2 @@
-export const postFilterableFields = ['searchTerm'];
+export const postFilterableFields = ['searchTerm', 'status'];
 export const postSearchableFields = ['title'];

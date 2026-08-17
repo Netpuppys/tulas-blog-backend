@@ -42,6 +42,10 @@ model Post {
   meta_description  String? //optional
   author_name       String? //optional
   slug              String   @unique
+  // "draft" | "published". Optional + defaulted so existing posts saved
+  // before this field existed (which have no status in Mongo at all)
+  // keep behaving as published instead of erroring or vanishing.
+  status            String?  @default("published")
 
   category_id String?   @db.ObjectId
   category    Category? @relation(fields: [category_id], references: [id], onDelete: SetNull)
