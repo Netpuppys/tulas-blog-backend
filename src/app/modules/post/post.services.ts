@@ -45,13 +45,15 @@ const getAllPost = async (
 
   // status=all -> no filter (dashboard wants everything).
   // status=<value> -> exact match on that status.
-  // status omitted -> default to "not draft" so published posts AND
-  // legacy posts saved before this field existed both show up, which is
-  // the safe default for anything that isn't explicitly the dashboard.
+  // status omitted -> default to published + legacy posts (status is
+  // explicitly null in Mongo for posts saved before this field existed).
+  // Using an explicit OR here instead of `status: { not: 'draft' } }`
+  // because that NOT filter was excluding null-status posts entirely
+  // on Mongo instead of matching them, which hid every existing post.
   if (status && status !== 'all') {
     andConditons.push({ status });
   } else if (!status) {
-    andConditons.push({ status: { not: 'draft' } });
+    andConditons.push({ OR: [{ status: 'published' }, { status: null }] });
   }
 
   const whereConditons: Prisma.PostWhereInput =
@@ -98,7 +100,12 @@ const getSinglePost = async (
   const includeAll = status === 'all';
   const whereConditons: Prisma.PostWhereInput = includeAll
     ? slugMatch
-    : { AND: [slugMatch, { status: { not: 'draft' } }] };
+    : {
+        AND: [
+          slugMatch,
+          { OR: [{ status: 'published' }, { status: null }] },
+        ],
+      };
 
   const result = await prisma.post.findFirst({
     where: whereConditons,
