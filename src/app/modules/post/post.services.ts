@@ -43,25 +43,16 @@ const getAllPost = async (
     });
   }
 
-  // status=all -> no filter (dashboard wants everything).
-  // status=<value> -> exact match on that status.
-  // status omitted -> default to published + legacy posts (status is
-  // explicitly null in Mongo for posts saved before this field existed).
-  // Using an explicit OR here instead of `status: { not: 'draft' } }`
-  // because that NOT filter was excluding null-status posts entirely
-  // on Mongo instead of matching them, which hid every existing post.
-  if (status && status !== 'all') {
-    andConditons.push({ status });
-  } else if (!status) {
-    andConditons.push({ OR: [{ status: 'published' }, { status: null }] });
-  }
-
   const whereConditons: Prisma.PostWhereInput =
     andConditons.length > 0 ? { AND: andConditons } : {};
 
-  const result = await prisma.post.findMany({
-    skip,
-    take: limit,
+  // Status is filtered in application code below rather than in the Mongo
+  // query. A Mongo-level `{ status: { not: 'draft' } }` / null-OR filter
+  // on this optional field was unreliable in production and hid every
+  // published post, so we fetch the (search-filtered) set and filter by
+  // status in JS, which behaves identically no matter how the field is
+  // stored (missing, null, or a string).
+  const allMatching = await prisma.post.findMany({
     where: whereConditons,
     orderBy:
       options.sortBy && options.sortOrder
@@ -75,9 +66,16 @@ const getAllPost = async (
       category: true,
     },
   });
-  const total = await prisma.post.count({
-    where: whereConditons,
-  });
+
+  const filtered =
+    status === 'all'
+      ? allMatching
+      : status
+      ? allMatching.filter(post => post.status === status)
+      : allMatching.filter(post => post.status !== 'draft');
+
+  const total = filtered.length;
+  const paginatedResult = filtered.slice(skip, skip + limit);
 
   return {
     meta: {
@@ -85,7 +83,7 @@ const getAllPost = async (
       limit,
       total,
     },
-    data: result,
+    data: paginatedResult,
   };
 };
 
@@ -95,24 +93,26 @@ const getSinglePost = async (
 ): Promise<Post | null> => {
   const cleanSlug = normalizeSlug(slug);
   const slugMatch = { OR: [{ slug: cleanSlug }, { slug: `${cleanSlug}/` }] };
-  // status=all (dashboard) can see drafts; anyone else only gets posts
-  // that aren't drafts (published, or legacy posts with no status set).
-  const includeAll = status === 'all';
-  const whereConditons: Prisma.PostWhereInput = includeAll
-    ? slugMatch
-    : {
-        AND: [
-          slugMatch,
-          { OR: [{ status: 'published' }, { status: null }] },
-        ],
-      };
 
   const result = await prisma.post.findFirst({
-    where: whereConditons,
+    where: slugMatch,
     include: {
       category: true,
     },
   });
+
+  if (!result) {
+    return null;
+  }
+
+  // status=all (dashboard) can see drafts; anyone else gets a 404-style
+  // null for drafts. Checked in JS after the fetch — see getAllPost for
+  // why we don't rely on a Mongo-level status filter for this.
+  const includeAll = status === 'all';
+  if (!includeAll && result.status === 'draft') {
+    return null;
+  }
+
   return result;
 };
 
